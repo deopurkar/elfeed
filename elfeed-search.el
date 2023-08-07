@@ -373,6 +373,8 @@ The customization `elfeed-search-date-format' sets the formatting."
         (must-not-have ())
         (before nil)
         (after nil)
+	(score-lower-bound nil)
+	(score-upper-bound nil)
         (matches ())
         (not-matches ())
         (limit nil)
@@ -381,7 +383,13 @@ The customization `elfeed-search-date-format' sets the formatting."
     (cl-loop for element in (split-string filter)
              for type = (aref element 0)
              do (cl-case type
-                  (?+
+		  (?> (setf score-lower-bound
+			    (max (string-to-number (substring element 1))
+				 (or score-lower-bound most-negative-fixnum))))
+		  (?< (setf score-upper-bound
+			    (min (string-to-number (substring element 1))
+				 (or score-upper-bound most-positive-fixnum))))
+		  (?+
                    (let ((symbol (intern (substring element 1))))
                      (unless (eq '## symbol)
                        (push symbol must-have))))
@@ -409,7 +417,11 @@ The customization `elfeed-search-date-format' sets the formatting."
                           (push re not-feeds))))
                   (otherwise (when (elfeed-valid-regexp-p element)
                                (push element matches)))))
-    `(,@(when before
+    `(,@(when score-lower-bound
+	  (list :score-lower-bound score-lower-bound))
+      ,@(when score-upper-bound
+	  (list :score-upper-bound score-upper-bound))
+      ,@(when before
           (list :before before))
       ,@(when after
           (list :after after))
@@ -497,13 +509,15 @@ This function must *only* be called within the body of
   (cl-destructuring-bind (&key must-have must-not-have
                                matches   not-matches
                                feeds     not-feeds
-                               after limit &allow-other-keys)
+                               after limit score-lower-bound
+			       score-upper-bound &allow-other-keys)
       filter
     (let* ((tags (elfeed-entry-tags entry))
            (date (elfeed-entry-date entry))
            (age (- (float-time) date))
            (title (or (elfeed-meta entry :title) (elfeed-entry-title entry)))
            (link (elfeed-entry-link entry))
+	   (score (or (elfeed-meta entry elfeed-score-scoring-meta-keyword) 0))
            (feed-title
             (or (elfeed-meta feed :title) (elfeed-feed-title feed) ""))
            (feed-id (elfeed-feed-id feed)))
@@ -513,6 +527,10 @@ This function must *only* be called within the body of
         (elfeed-db-return))
       (and (cl-every  (lambda (tag) (memq tag tags)) must-have)
            (cl-notany (lambda (tag) (memq tag tags)) must-not-have)
+	   (or (not score-lower-bound)
+	       (> score score-lower-bound))
+	   (or (not score-upper-bound)
+	       (< score score-upper-bound))
            (or (null matches)
                (cl-every
                 (lambda (m)
@@ -542,7 +560,8 @@ Executing a filter in bytecode form is generally faster than
                                must-have must-not-have
                                matches   not-matches
                                feeds     not-feeds
-                               limit &allow-other-keys)
+                               limit score-lower-bound
+			       score-upper-bound &allow-other-keys)
       filter
     `(lambda (,(if (or after matches not-matches must-have must-not-have)
                    'entry
@@ -553,7 +572,9 @@ Executing a filter in bytecode form is generally faster than
               ,(if limit
                    'count
                  '_count))
-       (let* (,@(when after
+       (let* (,@(when (or score-lower-bound score-upper-bound)
+		  '((score (or (elfeed-meta entry elfeed-score-scoring-meta-keyword) 0))))
+	      ,@(when after
                   '((date (elfeed-entry-date entry))
                     (age (- (float-time) date))))
               ,@(when (or must-have must-not-have)
@@ -583,7 +604,11 @@ Executing a filter in bytecode form is generally faster than
                          `(not
                            (or (string-match-p ,regex title)
                                (string-match-p ,regex link))))
-              ,@(when feeds
+	      ,@(when score-lower-bound
+		  `((> score ,score-lower-bound)))
+	      ,@(when score-upper-bound
+		  `((< score ,score-upper-bound)))
+	      ,@(when feeds
                   `((or ,@(cl-loop
                            for regex in feeds
                            collect `(string-match-p ,regex feed-id)
