@@ -146,10 +146,14 @@
         (when (elfeed-search-filter filter entry feed count)
           (push entry results)
           (cl-incf count)))
+      (setf results
+	    (if elfeed-search-sort-function
+		(sort results elfeed-search-sort-function)
+	      (nreverse results)))
       (princ
        (json-encode
         (cl-coerce
-         (mapcar #'elfeed-web-for-json (nreverse results)) 'vector))))))
+         (mapcar #'elfeed-web-for-json results) 'vector))))))
 
 (defvar elfeed-web-waiting ()
   "Clients waiting for an update.")
