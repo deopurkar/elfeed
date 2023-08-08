@@ -54,6 +54,9 @@
   :group 'elfeed
   :type 'boolean)
 
+(defvar elfeed-web-sort nil
+  "If non-nil, sort the results according to `elfeed-search-sort-function'")
+
 (defvar elfeed-web-limit 512
   "Maximum number of entries to serve at once.")
 
@@ -147,7 +150,7 @@
           (push entry results)
           (cl-incf count)))
       (setf results
-	    (if elfeed-search-sort-function
+	    (if (and elfeed-web-sort elfeed-search-sort-function)
 		(sort results elfeed-search-sort-function)
 	      (nreverse results)))
       (princ
